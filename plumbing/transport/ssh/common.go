@@ -4,6 +4,9 @@ package ssh
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -151,10 +154,11 @@ func dial(network, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
 	}
 	defer cancel()
 
-	conn, err := proxy.Dial(ctx, network, addr)
+	conn, err := getNetworkConnection(ctx, network, addr)
 	if err != nil {
 		return nil, err
 	}
+
 	c, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
 	if err != nil {
 		return nil, err
@@ -232,4 +236,51 @@ func overrideConfig(overrides *ssh.ClientConfig, c *ssh.ClientConfig) {
 	}
 
 	*c = vc.Interface().(ssh.ClientConfig)
+}
+
+func getNetworkConnection(ctx context.Context, network, address string) (conn net.Conn, err error) {
+	proxyAddr := os.ExpandEnv("HTTP_PROXY")
+
+	if proxyAddr == "" {
+		conn, err := proxy.Dial(ctx, network, address)
+		if err != nil {
+			return nil, fmt.Errorf("dial: %v", err)
+		}
+
+		return conn, nil
+	}
+
+	tr := &http.Transport{
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			conn, err = net.Dial("tcp", proxyAddr)
+			if err != nil {
+				return nil, fmt.Errorf("dialContext to %q: %v", proxyAddr, err)
+			}
+
+			return conn, nil
+		},
+	}
+
+	hclient := http.Client{
+		Transport: tr,
+	}
+
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodConnect, "http://"+address, nil)
+	if err != nil {
+		return nil, fmt.Errorf("getNetworkConnection: %v", err)
+	}
+
+	// we make the http request here, but we actually want the underlying socket connection for later use.
+	// We can not defer resp.Body.Close() the response object as is usual
+	// since this would terminate the connection that we want.
+	resp, err := hclient.Do(req) // nolint:bodyclose
+	if err != nil {
+		return nil, fmt.Errorf("getNetworkConnection: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("proxy connection: %d", resp.StatusCode)
+	}
+
+	return conn, nil
 }
