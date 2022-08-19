@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"reflect"
 	"strconv"
@@ -239,7 +240,10 @@ func overrideConfig(overrides *ssh.ClientConfig, c *ssh.ClientConfig) {
 }
 
 func getNetworkConnection(ctx context.Context, network, address string) (conn net.Conn, err error) {
-	proxyAddr := os.ExpandEnv("HTTP_PROXY")
+	proxyAddr := ""
+	if pUrl, err := url.Parse(os.Getenv("HTTP_PROXY")); err == nil {
+		proxyAddr = pUrl.Host
+	}
 
 	if proxyAddr == "" {
 		conn, err := proxy.Dial(ctx, network, address)
