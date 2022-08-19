@@ -5,7 +5,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/go-git/go-git/v5/plumbing/format/pktline"
+	"github.com/hpe-hcss/go-git/v5/plumbing/format/pktline"
 
 	. "gopkg.in/check.v1"
 )
